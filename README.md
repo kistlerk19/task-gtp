@@ -1,3 +1,8 @@
+# My Project
+
+## Directory Structure
+
+```plaintext
 src/
 ├── app/
 │   ├── admin/
