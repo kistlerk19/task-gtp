@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useTasks } from '@/hooks/useTasks';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -14,7 +14,7 @@ import { Search, Filter, Calendar, AlertCircle } from 'lucide-react';
 
 export default function TeamTasksPage() {
   const { data: session } = useSession();
-  const { tasks, loading, updateTask, fetchTasks } = useTasks();
+  const { tasks, loading, updateTask, getTask } = useTasks();
   const { notifications } = useNotifications();
   
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
@@ -23,10 +23,10 @@ export default function TeamTasksPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<string>('dueDate');
 
-  // Filter user's assigned tasks
-  const userTasks = tasks.filter(task => 
-    task.assignedTo?.id === session?.user?.id
-  );
+  // Memoize userTasks to prevent unnecessary recalculations
+  const userTasks = useMemo(() => {
+    return tasks.filter(task => task.assignedTo?.id === session?.user?.id);
+  }, [tasks, session?.user?.id]);
 
   useEffect(() => {
     let filtered = [...userTasks];
@@ -74,16 +74,16 @@ export default function TeamTasksPage() {
   };
 
   const getStatusCounts = () => {
-    return {
-      total: userTasks.length,
-      pending: userTasks.filter(t => t.status === 'pending').length,
-      in_progress: userTasks.filter(t => t.status === 'in_progress').length,
-      completed: userTasks.filter(t => t.status === 'completed').length,
-      overdue: userTasks.filter(t => 
-        new Date(t.dueDate) < new Date() && t.status !== 'completed'
-      ).length,
-    };
+  return {
+    total: userTasks.length,
+    pending: userTasks.filter(t => t.status === 'PENDING').length,
+    in_progress: userTasks.filter(t => t.status === 'IN_PROGRESS').length,
+    completed: userTasks.filter(t => t.status === 'COMPLETED').length,
+    overdue: userTasks.filter(t => 
+      new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED'
+    ).length,
   };
+};
 
   const statusCounts = getStatusCounts();
 

@@ -1,15 +1,14 @@
-// components/DeadlineWarning.tsx
 import React from 'react';
 import Badge from './ui/Badge';
 
 interface DeadlineWarningProps {
-  deadline: Date;
+  dueDate: string | Date; // Allow string or Date
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   size?: 'sm' | 'md' | 'lg';
 }
 
 const DeadlineWarning: React.FC<DeadlineWarningProps> = ({ 
-  deadline, 
+  dueDate, 
   status, 
   size = 'sm' 
 }) => {
@@ -18,12 +17,21 @@ const DeadlineWarning: React.FC<DeadlineWarningProps> = ({
     return null;
   }
 
+  // Convert dueDate to Date object if it's a string
+  const dueDateObj = typeof dueDate === 'string' ? new Date(dueDate) : dueDate;
+
+  // Check if dueDateObj is a valid Date
+  if (!(dueDateObj instanceof Date) || isNaN(dueDateObj.getTime())) {
+    console.warn('Invalid dueDate provided:', dueDate);
+    return null; // Return null if dueDate is invalid
+  }
+
   const now = new Date();
-  const timeUntilDeadline = deadline.getTime() - now.getTime();
+  const timeUntilDeadline = dueDateObj.getTime() - now.getTime();
   const hoursUntilDeadline = timeUntilDeadline / (1000 * 60 * 60);
   const daysUntilDeadline = timeUntilDeadline / (1000 * 60 * 60 * 24);
 
-  // Don't show warning if deadline is more than 7 days away
+  // Don't show warning if dueDate is more than 7 days away
   if (daysUntilDeadline > 7) {
     return null;
   }

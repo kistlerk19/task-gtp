@@ -6,10 +6,10 @@ import { useSession } from 'next-auth/react';
 import { useTasks } from '@/hooks/useTasks';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { Select } from '@/components/ui/Select';
+import Badge from '@/components/ui/Badge';
+import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
+import Modal from '@/components/ui/Modal';
 import TaskStatusBadge from '@/components/TaskStatusBadge';
 import DeadlineWarning from '@/components/DeadlineWarning';
 import { Task, TaskStatus } from '@/lib/types';
@@ -25,17 +25,16 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
+import { use } from 'react';
 
 interface TaskDetailPageProps {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>;
 }
 
 export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const router = useRouter();
   const { data: session } = useSession();
-  const { tasks, loading, updateTask, fetchTasks } = useTasks();
+  const { tasks, isLoading: loading, updateTask, getTask } = useTasks();
   
   const [task, setTask] = useState<Task | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -43,18 +42,37 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<TaskStatus>('pending');
+  const [error, setError] = useState<string | null>(null);
+
+  // Unwrap params using React.use
+  const { id } = use(params);
 
   useEffect(() => {
-    const foundTask = tasks.find(t => t.id === params.id);
+    const foundTask = tasks.find(t => t.id === id);
     if (foundTask) {
       setTask(foundTask);
       setNewStatus(foundTask.status);
-    }
-  }, [tasks, params.id]);
+    } else {
+      // Fetch the specific task if not found in the cache
+      if (typeof getTask !== 'function') {
+        console.error('getTask is not a function:', getTask);
+        setError('Failed to load task. Please try again later.');
+        return;
+      }
 
-  useEffect(() => {
-    fetchTasks();
-  }, []);
+      getTask(id).then((fetchedTask) => {
+        if (fetchedTask) {
+          setTask(fetchedTask);
+          setNewStatus(fetchedTask.status);
+        } else {
+          setError('Task not found.');
+        }
+      }).catch((err) => {
+        console.error('Error fetching task:', err);
+        setError('Failed to load task. Please try again later.');
+      });
+    }
+  }, [tasks, id, getTask]);
 
   const handleStatusUpdate = async (status: TaskStatus) => {
     if (!task) return;
@@ -66,6 +84,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
       setShowStatusModal(false);
     } catch (error) {
       console.error('Failed to update task status:', error);
+      setError('Failed to update task status.');
     } finally {
       setIsSubmitting(false);
     }
@@ -94,6 +113,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
       setNewComment('');
     } catch (error) {
       console.error('Failed to add comment:', error);
+      setError('Failed to add comment.');
     } finally {
       setIsSubmitting(false);
     }
@@ -101,6 +121,18 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
 
   const isOwner = task?.assignedTo?.id === session?.user?.id;
   const isOverdue = task && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+
+  if (error) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto">
+        <Card className="p-12 text-center">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Error</h3>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <Button onClick={() => router.back()}>Go Back</Button>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -288,32 +320,28 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
           </Card>
 
           {/* Quick Actions */}
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+          <div className="space-y-3">
+            {task.status !== 'completed' && (
+              <Button
+                onClick={() => handleStatusUpdate('completed')}
+                className="w-full bg-green-600 hover:bg-green-700"
+                disabled={isSubmitting}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Mark as Complete
+              </Button>
+            )}
             
-            <div className="space-y-3">
-              {task.status !== 'completed' && (
-                <Button
-                  onClick={() => handleStatusUpdate('completed')}
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  disabled={isSubmitting}
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Mark as Complete
-                </Button>
-              )}
-              
-              {task.status === 'pending' && (
-                <Button
-                  onClick={() => handleStatusUpdate('in_progress')}
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                  disabled={isSubmitting}
-                >
-                  Start Working
-                </Button>
-              )}
-            </div>
-          </Card>
+            {task.status === 'pending' && (
+              <Button
+                onClick={() => handleStatusUpdate('in_progress')}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                disabled={isSubmitting}
+              >
+                Start Working
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
