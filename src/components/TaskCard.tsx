@@ -23,7 +23,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   currentUserRole = 'TEAM_MEMBER',
   showAssignee = true 
 }) => {
-  const deadline = new Date(task.deadline);
+  const dueDate = new Date(task.dueDate);
   const createdAt = new Date(task.createdAt);
   const updatedAt = new Date(task.updatedAt);
 
@@ -101,10 +101,10 @@ const TaskCard: React.FC<TaskCardProps> = ({
         {/* Deadline and warnings */}
         <div className="flex items-center justify-between mb-4">
           <div className="text-sm text-gray-500">
-            <span className="font-medium">Due:</span> {formatDate(deadline)}
+            <span className="font-medium">Due:</span> {formatDate(dueDate)}
           </div>
           <DeadlineWarning 
-            deadline={deadline} 
+            dueDate={dueDate} 
             status={task.status}
             size="sm"
           />

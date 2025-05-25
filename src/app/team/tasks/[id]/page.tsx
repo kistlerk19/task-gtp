@@ -54,11 +54,33 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
     { value: 'COMPLETED', label: 'Completed' }
   ];
 
-  useEffect(() => {
+  // Function to load comments for a task
+const loadComments = async (taskId: string) => {
+  try {
+    const response = await fetch(`/api/tasks/${taskId}/comments`);
+    if (!response.ok) {
+      throw new Error('Failed to load comments');
+    }
+    const comments = await response.json();
+    return comments;
+  } catch (error) {
+    console.error('Error loading comments:', error);
+    return [];
+  }
+};
+
+useEffect(() => {
+  const loadTaskWithComments = async () => {
     const foundTask = tasks.find(t => t.id === id);
     if (foundTask) {
       setTask(foundTask);
       setNewStatus(foundTask.status);
+      
+      // Load comments separately if not already included
+      if (!foundTask.comments || foundTask.comments.length === 0) {
+        const comments = await loadComments(id);
+        setTask(prev => prev ? { ...prev, comments } : null);
+      }
     } else if (!loading) {
       // Only fetch if not already loading and task not found in cache
       if (typeof getTask !== 'function') {
@@ -67,19 +89,27 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
         return;
       }
 
-      getTask(id).then((fetchedTask) => {
+      try {
+        const fetchedTask = await getTask(id);
         if (fetchedTask) {
-          setTask(fetchedTask);
-          setNewStatus(fetchedTask.status);
+          // Load comments separately
+          const comments = await loadComments(id);
+          const taskWithComments = { ...fetchedTask, comments };
+          
+          setTask(taskWithComments);
+          setNewStatus(taskWithComments.status);
         } else {
           setError('Task not found.');
         }
-      }).catch((err) => {
+      } catch (err) {
         console.error('Error fetching task:', err);
         setError('Failed to load task. Please try again later.');
-      });
+      }
     }
-  }, [tasks, id, getTask, loading]);
+  };
+
+  loadTaskWithComments();
+}, [tasks, id, getTask, loading]);
 
   const handleStatusUpdate = async (status: string) => {
     if (!task) return;
@@ -121,51 +151,51 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   };
 
   const handleAddComment = async () => {
-    if (!task || !newComment.trim()) {
-      return;
+  if (!task || !newComment.trim()) {
+    return;
+  }
+
+  setIsSubmitting(true);
+  setError(null);
+  
+  try {
+    // Use the dedicated comments endpoint
+    const response = await fetch(`/api/tasks/${task.id}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        content: newComment.trim()
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to add comment');
     }
 
-    setIsSubmitting(true);
-    setError(null);
+    const newCommentData = await response.json();
     
-    try {
-      const response = await fetch(`/api/tasks/${task.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          comments: [
-            ...(task.comments || []),
-            {
-              id: Date.now().toString(),
-              content: newComment.trim(),
-              author: session?.user?.name || 'Current User',
-              createdAt: new Date().toISOString(),
-            },
-          ]
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to add comment');
-      }
-
-      const updatedTask = await response.json();
-      
-      // Update local state immediately
-      setTask(updatedTask);
-      setNewComment('');
-      
-      // Refresh the tasks cache
-      refreshTasks();
-      
-    } catch (error) {
-      console.error('Error adding comment:', error);
-      setError(error instanceof Error ? error.message : 'Failed to add comment.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    // Update local state immediately by adding the new comment to the existing comments
+    setTask(prevTask => {
+      if (!prevTask) return prevTask;
+      return {
+        ...prevTask,
+        comments: [...(prevTask.comments || []), newCommentData]
+      };
+    });
+    
+    setNewComment('');
+    
+    // Refresh the tasks cache
+    refreshTasks();
+    
+  } catch (error) {
+    console.error('Error adding comment:', error);
+    setError(error instanceof Error ? error.message : 'Failed to add comment.');
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const isOwner = task?.assignedTo?.id === session?.user?.id;
   const isOverdue = task && new Date(task.dueDate) < new Date() && task.status !== 'COMPLETED';
