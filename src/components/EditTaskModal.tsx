@@ -7,7 +7,6 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
-import Select from '@/components/ui/Select';
 import { Save, X } from 'lucide-react';
 
 interface EditTaskModalProps {
@@ -161,16 +160,17 @@ export default function EditTaskModal({
             <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">
               Priority
             </label>
-            <Select
+            <select
               id="priority"
               value={formData.priority}
-              onValueChange={(value) => handleInputChange('priority', value)}
+              onChange={(e) => handleInputChange('priority', e.target.value)}
               disabled={isLoading}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               <option value={TaskPriority.LOW}>Low</option>
               <option value={TaskPriority.MEDIUM}>Medium</option>
               <option value={TaskPriority.HIGH}>High</option>
-            </Select>
+            </select>
           </div>
 
           {/* Status */}
@@ -178,16 +178,17 @@ export default function EditTaskModal({
             <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
               Status
             </label>
-            <Select
+            <select
               id="status"
               value={formData.status}
-              onValueChange={(value) => handleInputChange('status', value)}
+              onChange={(e) => handleInputChange('status', e.target.value)}
               disabled={isLoading}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               <option value={TaskStatus.PENDING}>Pending</option>
               <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
               <option value={TaskStatus.COMPLETED}>Completed</option>
-            </Select>
+            </select>
           </div>
 
           {/* Due Date */}
@@ -210,12 +211,14 @@ export default function EditTaskModal({
             <label htmlFor="assignedTo" className="block text-sm font-medium text-gray-700 mb-1">
               Assigned To *
             </label>
-            <Select
+            <select
               id="assignedTo"
               value={formData.assignedToId}
-              onValueChange={(value) => handleInputChange('assignedToId', value)}
-              error={errors.assignedToId}
+              onChange={(e) => handleInputChange('assignedToId', e.target.value)}
               disabled={isLoading}
+              className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                errors.assignedToId ? 'border-red-300' : 'border-gray-300'
+              }`}
             >
               <option value="">Select assignee</option>
               {users.map((user) => (
@@ -223,7 +226,10 @@ export default function EditTaskModal({
                   {user.name} ({user.email})
                 </option>
               ))}
-            </Select>
+            </select>
+            {errors.assignedToId && (
+              <p className="mt-1 text-sm text-red-600">{errors.assignedToId}</p>
+            )}
           </div>
         </div>
 

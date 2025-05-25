@@ -9,7 +9,7 @@ import { TaskStatus, TaskPriority } from '@/lib/types';
 // GET single task by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -18,7 +18,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const taskId = params.id;
+    const { id: taskId } = await params;
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -62,7 +62,7 @@ export async function GET(
 // PUT update task
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -75,7 +75,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const taskId = params.id;
+    const { id: taskId } = await params;
     const body = await request.json();
     const { title, description, priority, status, dueDate, assignedToId } = body;
 
@@ -190,7 +190,7 @@ export async function PUT(
 // DELETE task
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -203,7 +203,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const taskId = params.id;
+    const { id: taskId } = await params;
 
     // Check if task exists
     const existingTask = await prisma.task.findUnique({

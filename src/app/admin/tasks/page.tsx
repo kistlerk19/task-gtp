@@ -174,34 +174,38 @@ export default function AdminTasksPage() {
     }
   };
 
-  const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
-    try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updates),
-      });
+  const handleUpdateTaskSimple = async (taskId: string, updates: Partial<Task>) => {
+  try {
+    const response = await fetch(`/api/tasks/${taskId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    });
 
-      if (!response.ok) {
-        throw new Error('Failed to update task');
-      }
-
-      const updatedTask = await response.json();
-      await updateTask(updatedTask);
-      await refetch(); // Refresh the tasks list
-    } catch (error) {
-      console.error('Error updating task:', error);
-      throw error;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update task');
     }
-  };
 
-  const closeModals = () => {
-    setShowDetailsModal(false);
-    setShowEditModal(false);
-    setSelectedTask(null);
-  };
+    // Just refetch all tasks instead of trying to update locally
+    await refetch();
+    
+  } catch (error) {
+    console.error('Error updating task:', error);
+    throw error;
+  }
+};
+
+const closeModals = async () => {
+  setShowDetailsModal(false);
+  setShowEditModal(false);
+  setSelectedTask(null);
+  
+  // Refresh tasks when closing modals
+  await refetch();
+};
 
   if (loading) {
     return (
@@ -433,7 +437,7 @@ export default function AdminTasksPage() {
         isOpen={showEditModal}
         onClose={closeModals}
         task={selectedTask}
-        onSave={handleUpdateTask}
+        onSave={handleUpdateTaskSimple}
         users={users}
       />
     </div>
