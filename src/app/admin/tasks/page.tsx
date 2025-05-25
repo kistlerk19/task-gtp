@@ -48,32 +48,70 @@ export default function AdminTasksPage() {
     new Set(tasks.filter(task => task.assignedTo).map(task => task.assignedTo!.id))
   ).map(id => tasks.find(task => task.assignedTo?.id === id)?.assignedTo).filter(Boolean);
 
+  // Helper function to normalize status values for comparison
+  const normalizeStatus = (status: string): string => {
+    return status.toLowerCase();
+  };
+
+  // Helper function to normalize priority values for comparison
+  const normalizePriority = (priority: string): string => {
+    return priority.toLowerCase();
+  };
+
+  // Helper function to check if task is overdue
+  const isTaskOverdue = (task: Task): boolean => {
+    const now = new Date();
+    const dueDate = new Date(task.dueDate);
+    return dueDate < now && normalizeStatus(task.status) !== 'completed';
+  };
+
+  // Helper function to get priority order value
+  const getPriorityOrder = (priority: string): number => {
+    const normalized = normalizePriority(priority);
+    switch (normalized) {
+      case 'urgent':
+        return 4;
+      case 'high':
+        return 3;
+      case 'medium':
+        return 2;
+      case 'low':
+        return 1;
+      default:
+        return 0;
+    }
+  };
+
   useEffect(() => {
     let filtered = [...tasks];
 
     // Apply search filter
-    if (searchTerm) {
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(task =>
-        task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.description.toLowerCase().includes(searchTerm.toLowerCase())
+        task.title.toLowerCase().includes(searchLower) ||
+        task.description.toLowerCase().includes(searchLower) ||
+        task.location?.toLowerCase().includes(searchLower) ||
+        task.assignedTo?.name.toLowerCase().includes(searchLower)
       );
     }
 
     // Apply status filter
     if (statusFilter !== 'all') {
       if (statusFilter === 'overdue') {
-        const now = new Date();
-        filtered = filtered.filter(task => 
-          new Date(task.dueDate) < now && task.status !== TaskStatus.COMPLETED
-        );
+        filtered = filtered.filter(task => isTaskOverdue(task));
       } else {
-        filtered = filtered.filter(task => task.status === statusFilter);
+        filtered = filtered.filter(task => 
+          normalizeStatus(task.status) === normalizeStatus(statusFilter)
+        );
       }
     }
 
     // Apply priority filter
     if (priorityFilter !== 'all') {
-      filtered = filtered.filter(task => task.priority === priorityFilter);
+      filtered = filtered.filter(task => 
+        normalizePriority(task.priority) === normalizePriority(priorityFilter)
+      );
     }
 
     // Apply assignee filter
@@ -92,29 +130,28 @@ export default function AdminTasksPage() {
 
       switch (sortField) {
         case 'dueDate':
-          aValue = new Date(a.dueDate);
-          bValue = new Date(b.dueDate);
+          aValue = new Date(a.dueDate).getTime();
+          bValue = new Date(b.dueDate).getTime();
           break;
         case 'createdAt':
-          aValue = new Date(a.createdAt);
-          bValue = new Date(b.createdAt);
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
           break;
         case 'title':
           aValue = a.title.toLowerCase();
           bValue = b.title.toLowerCase();
           break;
         case 'priority':
-          const priorityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-          aValue = priorityOrder[a.priority as keyof typeof priorityOrder];
-          bValue = priorityOrder[b.priority as keyof typeof priorityOrder];
+          aValue = getPriorityOrder(a.priority);
+          bValue = getPriorityOrder(b.priority);
           break;
         case 'status':
-          aValue = a.status;
-          bValue = b.status;
+          aValue = normalizeStatus(a.status);
+          bValue = normalizeStatus(b.status);
           break;
         default:
-          aValue = a.createdAt;
-          bValue = b.createdAt;
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
       }
 
       if (sortDirection === 'asc') {
@@ -157,55 +194,68 @@ export default function AdminTasksPage() {
   };
 
   const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task? This action cannot be undone.')) {
+      return;
+    }
+
     try {
       const response = await fetch(`/api/tasks/${taskId}`, {
         method: 'DELETE',
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete task');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete task');
       }
 
-      await deleteTask(taskId);
       await refetch(); // Refresh the tasks list
     } catch (error) {
       console.error('Error deleting task:', error);
-      throw error;
+      alert('Failed to delete task. Please try again.');
     }
   };
 
   const handleUpdateTaskSimple = async (taskId: string, updates: Partial<Task>) => {
-  try {
-    const response = await fetch(`/api/tasks/${taskId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(updates),
-    });
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to update task');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to update task');
+      }
+
+      // Refresh all tasks
+      await refetch();
+      
+    } catch (error) {
+      console.error('Error updating task:', error);
+      throw error;
     }
+  };
 
-    // Just refetch all tasks instead of trying to update locally
-    await refetch();
+  const closeModals = async () => {
+    setShowDetailsModal(false);
+    setShowEditModal(false);
+    setSelectedTask(null);
     
-  } catch (error) {
-    console.error('Error updating task:', error);
-    throw error;
-  }
-};
+    // Refresh tasks when closing modals
+    await refetch();
+  };
 
-const closeModals = async () => {
-  setShowDetailsModal(false);
-  setShowEditModal(false);
-  setSelectedTask(null);
-  
-  // Refresh tasks when closing modals
-  await refetch();
-};
+  // Calculate task stats
+  const taskStats = {
+    total: tasks.length,
+    pending: tasks.filter(t => normalizeStatus(t.status) === 'pending').length,
+    inProgress: tasks.filter(t => normalizeStatus(t.status) === 'in_progress').length,
+    completed: tasks.filter(t => normalizeStatus(t.status) === 'completed').length,
+    overdue: tasks.filter(t => isTaskOverdue(t)).length,
+  };
 
   if (loading) {
     return (
@@ -241,7 +291,7 @@ const closeModals = async () => {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
-                placeholder="Search tasks by title or description..."
+                placeholder="Search tasks by title, description, location, or assignee..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -254,10 +304,15 @@ const closeModals = async () => {
             >
               <Filter className="h-4 w-4" />
               Filters
+              {(statusFilter !== 'all' || priorityFilter !== 'all' || assigneeFilter !== 'all') && (
+                <span className="ml-1 bg-blue-500 text-white text-xs rounded-full px-2 py-0.5">
+                  {[statusFilter, priorityFilter, assigneeFilter].filter(f => f !== 'all').length}
+                </span>
+              )}
             </Button>
             {(searchTerm || statusFilter !== 'all' || priorityFilter !== 'all' || assigneeFilter !== 'all') && (
               <Button variant="outline" onClick={clearFilters}>
-                Clear
+                Clear All
               </Button>
             )}
           </div>
@@ -283,6 +338,7 @@ const closeModals = async () => {
                 placeholder="Filter by priority"
               >
                 <option value="all">All Priority</option>
+                <option value="urgent">Urgent</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
@@ -319,6 +375,8 @@ const closeModals = async () => {
                 <option value="title-desc">Title (Z-A)</option>
                 <option value="priority-desc">Priority (High-Low)</option>
                 <option value="priority-asc">Priority (Low-High)</option>
+                <option value="status-asc">Status (A-Z)</option>
+                <option value="status-desc">Status (Z-A)</option>
               </Select>
             </div>
           )}
@@ -326,30 +384,25 @@ const closeModals = async () => {
       </Card>
 
       {/* Task Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{tasks.length}</div>
+          <div className="text-2xl font-bold text-blue-600">{taskStats.total}</div>
           <div className="text-sm text-gray-600">Total</div>
         </Card>
         <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-yellow-600">
-            {tasks.filter(t => t.status === TaskStatus.PENDING).length}
-          </div>
+          <div className="text-2xl font-bold text-yellow-600">{taskStats.pending}</div>
           <div className="text-sm text-gray-600">Pending</div>
         </Card>
         <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
-            {tasks.filter(t => t.status === TaskStatus.COMPLETED).length}
-          </div>
+          <div className="text-2xl font-bold text-blue-500">{taskStats.inProgress}</div>
+          <div className="text-sm text-gray-600">In Progress</div>
+        </Card>
+        <Card className="p-4 text-center">
+          <div className="text-2xl font-bold text-green-600">{taskStats.completed}</div>
           <div className="text-sm text-gray-600">Completed</div>
         </Card>
         <Card className="p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">
-            {tasks.filter(t => {
-              const now = new Date();
-              return new Date(t.dueDate) < now && t.status !== TaskStatus.COMPLETED;
-            }).length}
-          </div>
+          <div className="text-2xl font-bold text-red-600">{taskStats.overdue}</div>
           <div className="text-sm text-gray-600">Overdue</div>
         </Card>
       </div>

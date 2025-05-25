@@ -4,6 +4,32 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const { title, message, taskId } = body;
+
+  if (!title || !message) {
+    return NextResponse.json({ error: 'Title and message are required' }, { status: 400 });
+  }
+
+  const notification = await prisma.notification.create({
+    data: {
+      userId: session.user.id,
+      title,
+      message,
+      taskId,
+      type: 'EMAIL',
+    }
+  });
+
+  return NextResponse.json(notification);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);

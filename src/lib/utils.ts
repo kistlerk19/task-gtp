@@ -8,17 +8,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const taskStatusColors: TaskStatusColor = {
-  pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-  in_progress: 'bg-blue-100 text-blue-800 border-blue-300',
-  completed: 'bg-green-100 text-green-800 border-green-300',
-  overdue: 'bg-red-100 text-red-800 border-red-300',
+  PENDING: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  IN_PROGRESS: 'bg-blue-100 text-blue-800 border-blue-300',
+  COMPLETED: 'bg-green-100 text-green-800 border-green-300',
+  OVERDUE: 'bg-red-100 text-red-800 border-red-300',
 }
 
 export const taskPriorityColors: TaskPriorityColor = {
-  low: 'bg-gray-100 text-gray-800 border-gray-300',
-  medium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-  high: 'bg-orange-100 text-orange-800 border-orange-300',
-  urgent: 'bg-red-100 text-red-800 border-red-300',
+  LOW: 'bg-gray-100 text-gray-800 border-gray-300',
+  MEDIUM: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  HIGH: 'bg-orange-100 text-orange-800 border-orange-300',
+  URGENT: 'bg-red-100 text-red-800 border-red-300',
 }
 
 export const formatDate = (date: Date | string): string => {
@@ -66,7 +66,7 @@ export const getDaysUntilDue = (dueDate: Date | string): number => {
 }
 
 export const isTaskOverdue = (dueDate: Date | string, status: TaskStatus): boolean => {
-  if (status === 'completed') return false
+  if (status === 'COMPLETED') return false
   const due = new Date(dueDate)
   const now = new Date()
   return due < now
@@ -74,13 +74,13 @@ export const isTaskOverdue = (dueDate: Date | string, status: TaskStatus): boole
 
 export const getTaskStatusLabel = (status: TaskStatus): string => {
   switch (status) {
-    case 'pending':
+    case 'PENDING':
       return 'Pending'
-    case 'in_progress':
+    case 'IN_PROGRESS':
       return 'In Progress'
-    case 'completed':
+    case 'COMPLETED':
       return 'Completed'
-    case 'overdue':
+    case 'OVERDUE':
       return 'Overdue'
     default:
       return status
@@ -89,13 +89,13 @@ export const getTaskStatusLabel = (status: TaskStatus): string => {
 
 export const getTaskPriorityLabel = (priority: TaskPriority): string => {
   switch (priority) {
-    case 'low':
+    case 'LOW':
       return 'Low'
-    case 'medium':
+    case 'MEDIUM':
       return 'Medium'
-    case 'high':
+    case 'HIGH':
       return 'High'
-    case 'urgent':
+    case 'URGENT':
       return 'Urgent'
     default:
       return priority

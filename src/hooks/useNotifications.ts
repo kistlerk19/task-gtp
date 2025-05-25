@@ -12,6 +12,7 @@ interface UseNotificationsReturn {
   markAsRead: (notificationId: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   refreshNotifications: () => Promise<void>;
+  deleteNotification: (notificationId: string) => Promise<void>;
 }
 
 export const useNotifications = (): UseNotificationsReturn => {
@@ -19,18 +20,26 @@ export const useNotifications = (): UseNotificationsReturn => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const safeParseJSON = async (response: Response) => {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  };
+
   const fetchNotifications = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      
+
       const response = await fetch('/api/notifications');
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch notifications');
       }
-      
-      const data = await response.json();
+
+      const data = await safeParseJSON(response);
       setNotifications(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
@@ -42,43 +51,83 @@ export const useNotifications = (): UseNotificationsReturn => {
 
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
-      const response = await fetch(`/api/notifications/${notificationId}/read`, {
-        method: 'PATCH',
+      const response = await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          notificationIds: [notificationId],
+          markAsRead: true
+        }),
       });
-      
+
       if (!response.ok) {
-        throw new Error('Failed to mark notification as read');
+        const errorData = await safeParseJSON(response);
+        throw new Error(errorData.error || 'Failed to mark notification as read');
       }
-      
-      // Update local state
-      setNotifications(prev => 
-        prev.map(notification => 
-          notification.id === notificationId 
+
+      setNotifications(prev =>
+        prev.map(notification =>
+          notification.id === notificationId
             ? { ...notification, read: true }
             : notification
         )
       );
     } catch (err) {
       console.error('Error marking notification as read:', err);
+      setError(err instanceof Error ? err.message : 'Failed to mark notification as read');
     }
   }, []);
 
   const markAllAsRead = useCallback(async () => {
     try {
-      const response = await fetch('/api/notifications/mark-all-read', {
-        method: 'PATCH',
+      const unreadNotifications = notifications.filter(n => !n.read);
+
+      if (unreadNotifications.length === 0) return;
+
+      const response = await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          notificationIds: unreadNotifications.map(n => n.id),
+          markAsRead: true
+        }),
       });
-      
+
       if (!response.ok) {
-        throw new Error('Failed to mark all notifications as read');
+        const errorData = await safeParseJSON(response);
+        throw new Error(errorData.error || 'Failed to mark all notifications as read');
       }
-      
-      // Update local state
-      setNotifications(prev => 
+
+      setNotifications(prev =>
         prev.map(notification => ({ ...notification, read: true }))
       );
     } catch (err) {
       console.error('Error marking all notifications as read:', err);
+      setError(err instanceof Error ? err.message : 'Failed to mark all notifications as read');
+    }
+  }, [notifications]);
+
+  const deleteNotification = useCallback(async (notificationId: string) => {
+    try {
+      const response = await fetch(`/api/notifications?id=${notificationId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await safeParseJSON(response);
+        throw new Error(errorData.error || 'Failed to delete notification');
+      }
+
+      setNotifications(prev =>
+        prev.filter(notification => notification.id !== notificationId)
+      );
+    } catch (err) {
+      console.error('Error deleting notification:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete notification');
     }
   }, []);
 
@@ -86,15 +135,12 @@ export const useNotifications = (): UseNotificationsReturn => {
     await fetchNotifications();
   }, [fetchNotifications]);
 
-  // Calculate unread count
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // Initial fetch
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // Poll for new notifications every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       fetchNotifications();
@@ -103,6 +149,15 @@ export const useNotifications = (): UseNotificationsReturn => {
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
+  useEffect(() => {
+    if (error) {
+      const timeout = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timeout);
+    }
+  }, [error]);
+
   return {
     notifications,
     unreadCount,
@@ -110,6 +165,7 @@ export const useNotifications = (): UseNotificationsReturn => {
     error,
     markAsRead,
     markAllAsRead,
-    refreshNotifications
+    refreshNotifications,
+    deleteNotification
   };
 };

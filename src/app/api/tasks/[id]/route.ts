@@ -1,9 +1,9 @@
-// app/api/tasks/[id]/route.ts
+// app/api/tasks/[id]/route.ts - Fixed version with email sending
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { sendTaskUpdateEmail } from '@/lib/email';
+import { sendTaskAssignmentEmail, sendTaskUpdateEmail } from '@/lib/email';
 import { TaskStatus, TaskPriority } from '@/lib/types';
 
 // GET single task by ID
@@ -71,13 +71,11 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
     const { id: taskId } = await params;
     const body = await request.json();
     const { title, description, priority, status, dueDate, assignedToId } = body;
+
+    console.log('Updating task:', taskId, 'with data:', body);
 
     // Validate task exists
     const existingTask = await prisma.task.findUnique({
@@ -86,11 +84,46 @@ export async function PUT(
         assignedTo: {
           select: { id: true, name: true, email: true },
         },
+        createdBy: {
+          select: { id: true, name: true, email: true },
+        },
       },
     });
 
     if (!existingTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
+
+    console.log('Existing task found:', existingTask.id);
+
+    // Check permissions
+    const isAdmin = session.user.role === 'ADMIN';
+    const isAssignedUser = existingTask.assignedToId === session.user.id;
+
+    console.log('Permission check:', { isAdmin, isAssignedUser, userRole: session.user.role });
+
+    if (!isAdmin && !isAssignedUser) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // If user is not admin, they can only update status
+    if (!isAdmin && isAssignedUser) {
+      // Validate that only status is being updated
+      const allowedFields = ['status'];
+      const providedFields = Object.keys(body);
+      const hasUnallowedFields = providedFields.some(field => !allowedFields.includes(field));
+      
+      if (hasUnallowedFields) {
+        return NextResponse.json({ 
+          error: 'Team members can only update task status' 
+        }, { status: 403 });
+      }
+
+      if (!status) {
+        return NextResponse.json({ 
+          error: 'Status is required for task update' 
+        }, { status: 400 });
+      }
     }
 
     // Validate input
@@ -104,37 +137,25 @@ export async function PUT(
       return NextResponse.json({ error: 'Invalid priority' }, { status: 400 });
     }
 
-    // Validate due date if provided
-    if (dueDate) {
-      const dueDateValue = new Date(dueDate);
-      if (isNaN(dueDateValue.getTime())) {
-        return NextResponse.json({ error: 'Invalid due date' }, { status: 400 });
-      }
-    }
-
-    // Validate assigned user if provided
-    if (assignedToId && assignedToId !== existingTask.assignedToId) {
-      const assignedUser = await prisma.user.findUnique({
-        where: { id: assignedToId },
-      });
-
-      if (!assignedUser) {
-        return NextResponse.json(
-          { error: 'Assigned user not found' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Build update data
+    // Build update data based on user role
     const updateData: any = {};
-    if (title !== undefined) updateData.title = title;
-    if (description !== undefined) updateData.description = description;
-    if (priority !== undefined) updateData.priority = priority;
-    if (status !== undefined) updateData.status = status;
-    if (dueDate !== undefined) updateData.dueDate = new Date(dueDate);
-    if (assignedToId !== undefined) updateData.assignedToId = assignedToId;
+    
+    if (isAdmin) {
+      // Admin can update all fields
+      if (title !== undefined) updateData.title = title;
+      if (description !== undefined) updateData.description = description;
+      if (priority !== undefined) updateData.priority = priority;
+      if (status !== undefined) updateData.status = status;
+      if (dueDate !== undefined) updateData.dueDate = new Date(dueDate);
+      if (assignedToId !== undefined) updateData.assignedToId = assignedToId;
+    } else if (isAssignedUser) {
+      // Assigned user can only update status
+      if (status !== undefined) updateData.status = status;
+    }
 
+    console.log('Update data:', updateData);
+
+    // Update the task
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: updateData,
@@ -148,40 +169,113 @@ export async function PUT(
       },
     });
 
-    // Create notification if assignee changed
-    if (assignedToId && assignedToId !== existingTask.assignedToId) {
-      await prisma.notification.create({
-        data: {
-          type: 'TASK_UPDATED',
-          title: 'Task Reassigned',
-          message: `You have been assigned to task: "${updatedTask.title}"`,
-          userId: assignedToId,
-          taskId: updatedTask.id,
-        },
-      });
+    console.log('Task updated successfully:', updatedTask.id);
 
-      // Send email notification
+    // Handle notifications and emails for status updates
+    if (status && status !== existingTask.status) {
       try {
-        await sendTaskUpdateEmail({
-          taskTitle: updatedTask.title,
-          taskDescription: updatedTask.description,
-          assigneeName: updatedTask.assignedTo?.name || '',
-          assigneeEmail: updatedTask.assignedTo?.email || '',
-          dueDate: updatedTask.dueDate.toLocaleDateString(),
-          priority: updatedTask.priority,
-          adminName: session.user.name || '',
-          updateType: 'reassigned',
-        });
-      } catch (emailError) {
-        console.error('Error sending email notification:', emailError);
+        const updaterName = session.user.name || 'User';
+        const isStatusUpdateByAssignee = isAssignedUser && !isAdmin;
+        
+        // Send email notification for status updates
+        if (isStatusUpdateByAssignee && updatedTask.createdBy?.email) {
+          // Assignee updated status - notify admin/creator
+          try {
+            await sendTaskUpdateEmail({
+              taskTitle: updatedTask.title,
+              newStatus: status,
+              assigneeName: updatedTask.createdBy.name || 'Admin',
+              assigneeEmail: updatedTask.createdBy.email,
+              notes: `Status updated by ${updaterName}`,
+              completedAt: status === 'COMPLETED' ? new Date().toLocaleString() : undefined,
+            });
+            console.log('Status update email sent to admin:', updatedTask.createdBy.email);
+          } catch (emailError) {
+            console.error('Failed to send status update email to admin:', emailError);
+          }
+
+          // Create notification for admin
+          await prisma.notification.create({
+            data: {
+              type: 'TASK_UPDATED',
+              title: 'Task Status Updated',
+              message: `${updaterName} updated status of task "${updatedTask.title}" to ${status}`,
+              userId: updatedTask.createdById!,
+              taskId: updatedTask.id,
+            },
+          });
+        } else if (isAdmin && updatedTask.assignedTo?.email) {
+          // Admin updated status - notify assignee
+          try {
+            await sendTaskUpdateEmail({
+              taskTitle: updatedTask.title,
+              newStatus: status,
+              assigneeName: updatedTask.assignedTo.name || 'Team Member',
+              assigneeEmail: updatedTask.assignedTo.email,
+              notes: `Status updated by ${updaterName}`,
+              completedAt: status === 'COMPLETED' ? new Date().toLocaleString() : undefined,
+            });
+            console.log('Status update email sent to assignee:', updatedTask.assignedTo.email);
+          } catch (emailError) {
+            console.error('Failed to send status update email to assignee:', emailError);
+          }
+
+          // Create notification for assignee
+          await prisma.notification.create({
+            data: {
+              type: 'TASK_UPDATED',
+              title: 'Task Status Updated',
+              message: `Task "${updatedTask.title}" status changed to ${status}`,
+              userId: updatedTask.assignedToId!,
+              taskId: updatedTask.id,
+            },
+          });
+        }
+      } catch (notificationError) {
+        console.error('Error creating notification:', notificationError);
+        // Don't fail the whole request for notification errors
       }
     }
 
-    return NextResponse.json(updatedTask);
+    // Handle email for task assignment changes (when admin assigns task to new user)
+    if (isAdmin && assignedToId && assignedToId !== existingTask.assignedToId) {
+      try {
+        const newAssignee = await prisma.user.findUnique({
+          where: { id: assignedToId },
+          select: { name: true, email: true },
+        });
+
+        if (newAssignee?.email) {
+          await sendTaskAssignmentEmail({
+            taskTitle: updatedTask.title,
+            taskDescription: updatedTask.description || '',
+            assigneeName: newAssignee.name || 'Team Member',
+            assigneeEmail: newAssignee.email,
+            dueDate: updatedTask.dueDate?.toLocaleDateString() || null,
+            priority: updatedTask.priority,
+            adminName: session.user.name || 'Admin',
+          });
+          console.log('Task assignment email sent to new assignee:', newAssignee.email);
+        }
+      } catch (emailError) {
+        console.error('Failed to send task assignment email:', emailError);
+      }
+    }
+
+    // Return the updated task
+    const responseData = {
+      ...updatedTask,
+      comments: [], // Frontend will load comments separately
+    };
+
+    console.log('Sending response:', responseData.id);
+
+    return NextResponse.json(responseData);
+
   } catch (error) {
     console.error('Error updating task:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
@@ -224,10 +318,14 @@ export async function DELETE(
       where: { taskId: taskId },
     });
 
-    // Delete comments if you have them
-    await prisma.comment?.deleteMany({
-      where: { taskId: taskId },
-    });
+    // Delete comments - only if the Comment model exists
+    try {
+      await prisma.comment.deleteMany({
+        where: { taskId: taskId },
+      });
+    } catch (commentDeleteError) {
+      console.log('Comment model may not exist, skipping comment deletion');
+    }
 
     // Delete the task
     await prisma.task.delete({
@@ -236,14 +334,18 @@ export async function DELETE(
 
     // Create notification for assignee if task was assigned
     if (existingTask.assignedToId) {
-      await prisma.notification.create({
-        data: {
-          type: 'TASK_DELETED',
-          title: 'Task Deleted',
-          message: `Task "${existingTask.title}" has been deleted`,
-          userId: existingTask.assignedToId,
-        },
-      });
+      try {
+        await prisma.notification.create({
+          data: {
+            type: 'TASK_DELETED',
+            title: 'Task Deleted',
+            message: `Task "${existingTask.title}" has been deleted`,
+            userId: existingTask.assignedToId,
+          },
+        });
+      } catch (notificationError) {
+        console.error('Error creating deletion notification:', notificationError);
+      }
     }
 
     return NextResponse.json({ message: 'Task deleted successfully' });

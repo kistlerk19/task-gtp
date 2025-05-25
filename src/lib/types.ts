@@ -16,6 +16,8 @@ export enum TaskPriority {
   HIGH = 'HIGH',
   URGENT = 'URGENT'
 }
+// export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
+// export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export enum NotificationType {
   TASK_ASSIGNED = 'TASK_ASSIGNED',
@@ -171,30 +173,35 @@ export interface EmailData {
   data: Record<string, any>
 }
 
+// lib/types.ts - Add these email types
 export interface TaskAssignmentEmail {
-  taskTitle: string
-  taskDescription: string
-  assigneeName: string
-  assigneeEmail: string
-  dueDate?: string
-  priority: TaskPriority
-  adminName: string
+  taskTitle: string;
+  taskDescription: string;
+  assigneeName: string;
+  assigneeEmail: string;
+  dueDate: string | null;
+  priority: string;
+  adminName: string;
 }
 
 export interface TaskUpdateEmail {
-  taskTitle: string
-  newStatus: TaskStatus
-  assigneeName: string
-  notes?: string
-  completedAt?: string
+  taskTitle: string;
+  newStatus: string;
+  assigneeName: string;
+  assigneeEmail: string;
+  notes?: string;
+  completedAt?: string;
 }
 
 export interface DeadlineReminderEmail {
-  taskTitle: string
-  dueDate: string
-  assigneeName: string
-  daysUntilDue: number
+  taskTitle: string;
+  dueDate: string;
+  assigneeName: string;
+  assigneeEmail: string;
+  daysUntilDue: number;
 }
+
+
 
 export type TaskStatusColor = {
   [key in TaskStatus]: string
