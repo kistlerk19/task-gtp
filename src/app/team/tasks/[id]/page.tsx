@@ -34,26 +34,33 @@ interface TaskDetailPageProps {
 export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   const router = useRouter();
   const { data: session } = useSession();
-  const { tasks, isLoading: loading, updateTask, getTask } = useTasks();
+  const { tasks, isLoading: loading, updateTask, getTask, refreshTasks } = useTasks();
   
   const [task, setTask] = useState<Task | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
-  const [newStatus, setNewStatus] = useState<TaskStatus>('pending');
+  const [newStatus, setNewStatus] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   // Unwrap params using React.use
   const { id } = use(params);
+
+  // Status options for the select component
+  const statusOptions = [
+    { value: 'PENDING', label: 'Pending' },
+    { value: 'IN_PROGRESS', label: 'In Progress' },
+    { value: 'COMPLETED', label: 'Completed' }
+  ];
 
   useEffect(() => {
     const foundTask = tasks.find(t => t.id === id);
     if (foundTask) {
       setTask(foundTask);
       setNewStatus(foundTask.status);
-    } else {
-      // Fetch the specific task if not found in the cache
+    } else if (!loading) {
+      // Only fetch if not already loading and task not found in cache
       if (typeof getTask !== 'function') {
         console.error('getTask is not a function:', getTask);
         setError('Failed to load task. Please try again later.');
@@ -72,55 +79,96 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
         setError('Failed to load task. Please try again later.');
       });
     }
-  }, [tasks, id, getTask]);
+  }, [tasks, id, getTask, loading]);
 
-  const handleStatusUpdate = async (status: TaskStatus) => {
+  const handleStatusUpdate = async (status: string) => {
     if (!task) return;
     
     setIsSubmitting(true);
+    setError(null);
+    
     try {
-      await updateTask(task.id, { status });
-      setTask({ ...task, status });
+      // Call the API directly to ensure we get the updated task
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update task status');
+      }
+
+      const updatedTask = await response.json();
+      
+      // Update local state immediately
+      setTask(updatedTask);
+      setNewStatus(updatedTask.status);
       setShowStatusModal(false);
+      
+      // Refresh the tasks cache to keep everything in sync
+      refreshTasks();
+      
     } catch (error) {
       console.error('Failed to update task status:', error);
-      setError('Failed to update task status.');
+      setError(error instanceof Error ? error.message : 'Failed to update task status.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleAddComment = async () => {
-    if (!task || !newComment.trim()) return;
-    
+    if (!task || !newComment.trim()) {
+      return;
+    }
+
     setIsSubmitting(true);
+    setError(null);
+    
     try {
-      const updatedTask = {
-        ...task,
-        comments: [
-          ...task.comments,
-          {
-            id: Date.now().toString(),
-            content: newComment.trim(),
-            author: session?.user?.name || 'Unknown',
-            createdAt: new Date().toISOString(),
-          }
-        ]
-      };
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          comments: [
+            ...(task.comments || []),
+            {
+              id: Date.now().toString(),
+              content: newComment.trim(),
+              author: session?.user?.name || 'Current User',
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add comment');
+      }
+
+      const updatedTask = await response.json();
       
-      await updateTask(task.id, { comments: updatedTask.comments });
+      // Update local state immediately
       setTask(updatedTask);
       setNewComment('');
+      
+      // Refresh the tasks cache
+      refreshTasks();
+      
     } catch (error) {
-      console.error('Failed to add comment:', error);
-      setError('Failed to add comment.');
+      console.error('Error adding comment:', error);
+      setError(error instanceof Error ? error.message : 'Failed to add comment.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const isOwner = task?.assignedTo?.id === session?.user?.id;
-  const isOverdue = task && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const isOverdue = task && new Date(task.dueDate) < new Date() && task.status !== 'COMPLETED';
 
   if (error) {
     return (
@@ -284,12 +332,12 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
                   <p className="text-sm text-gray-600">Priority</p>
                   <Badge 
                     variant={
-                      task.priority === 'high' ? 'destructive' :
-                      task.priority === 'medium' ? 'secondary' : 'outline'
+                      task.priority === 'HIGH' ? 'destructive' :
+                      task.priority === 'MEDIUM' ? 'secondary' : 'outline'
                     }
                     className="mt-1"
                   >
-                    {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                    {task.priority.charAt(0).toUpperCase() + task.priority.slice(1).toLowerCase()}
                   </Badge>
                 </div>
               </div>
@@ -321,9 +369,9 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
 
           {/* Quick Actions */}
           <div className="space-y-3">
-            {task.status !== 'completed' && (
+            {task.status !== 'COMPLETED' && (
               <Button
-                onClick={() => handleStatusUpdate('completed')}
+                onClick={() => handleStatusUpdate('COMPLETED')}
                 className="w-full bg-green-600 hover:bg-green-700"
                 disabled={isSubmitting}
               >
@@ -332,9 +380,9 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
               </Button>
             )}
             
-            {task.status === 'pending' && (
+            {task.status === 'PENDING' && (
               <Button
-                onClick={() => handleStatusUpdate('in_progress')}
+                onClick={() => handleStatusUpdate('IN_PROGRESS')}
                 className="w-full bg-blue-600 hover:bg-blue-700"
                 disabled={isSubmitting}
               >
@@ -358,12 +406,10 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
             </label>
             <Select
               value={newStatus}
-              onChange={(e) => setNewStatus(e.target.value as TaskStatus)}
-            >
-              <option value="pending">Pending</option>
-              <option value="in_progress">In Progress</option>
-              <option value="completed">Completed</option>
-            </Select>
+              onChange={(value) => setNewStatus(value)}
+              options={statusOptions}
+              placeholder="Select status"
+            />
           </div>
 
           <div className="flex justify-end gap-2">
@@ -375,7 +421,7 @@ export default function TaskDetailPage({ params }: TaskDetailPageProps) {
             </Button>
             <Button
               onClick={() => handleStatusUpdate(newStatus)}
-              disabled={isSubmitting || newStatus === task.status}
+              disabled={isSubmitting || newStatus === task.status || !newStatus}
             >
               {isSubmitting ? 'Updating...' : 'Update Status'}
             </Button>

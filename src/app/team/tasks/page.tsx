@@ -14,7 +14,7 @@ import { Search, Filter, Calendar, AlertCircle } from 'lucide-react';
 
 export default function TeamTasksPage() {
   const { data: session } = useSession();
-  const { tasks, loading, updateTask, getTask } = useTasks();
+  const { tasks, isLoading: loading, updateTask, getTask } = useTasks();
   const { notifications } = useNotifications();
   
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
@@ -23,12 +23,11 @@ export default function TeamTasksPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<string>('dueDate');
 
-  // Memoize userTasks to prevent unnecessary recalculations
-  const userTasks = useMemo(() => {
-    return tasks.filter(task => task.assignedTo?.id === session?.user?.id);
-  }, [tasks, session?.user?.id]);
-
-  useEffect(() => {
+  // Filter and process tasks directly in useMemo to avoid dependency issues
+  const processedTasks = useMemo(() => {
+    // First filter to get user tasks
+    const userTasks = tasks.filter(task => task.assignedTo?.id === session?.user?.id);
+    
     let filtered = [...userTasks];
 
     // Apply status filter
@@ -66,24 +65,33 @@ export default function TeamTasksPage() {
       }
     });
 
-    setFilteredTasks(filtered);
-  }, [userTasks, statusFilter, priorityFilter, searchTerm, sortBy]);
+    return {
+      userTasks,
+      filteredTasks: filtered
+    };
+  }, [tasks, session?.user?.id, statusFilter, priorityFilter, searchTerm, sortBy]);
+
+  // Update filteredTasks when processedTasks changes
+  useEffect(() => {
+    setFilteredTasks(processedTasks.filteredTasks);
+  }, [processedTasks.filteredTasks]);
 
   const handleStatusUpdate = async (taskId: string, newStatus: TaskStatus) => {
     await updateTask(taskId, { status: newStatus });
   };
 
   const getStatusCounts = () => {
-  return {
-    total: userTasks.length,
-    pending: userTasks.filter(t => t.status === 'PENDING').length,
-    in_progress: userTasks.filter(t => t.status === 'IN_PROGRESS').length,
-    completed: userTasks.filter(t => t.status === 'COMPLETED').length,
-    overdue: userTasks.filter(t => 
-      new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED'
-    ).length,
+    const userTasks = processedTasks.userTasks;
+    return {
+      total: userTasks.length,
+      pending: userTasks.filter(t => t.status === 'PENDING').length,
+      in_progress: userTasks.filter(t => t.status === 'IN_PROGRESS').length,
+      completed: userTasks.filter(t => t.status === 'COMPLETED').length,
+      overdue: userTasks.filter(t => 
+        new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED'
+      ).length,
+    };
   };
-};
 
   const statusCounts = getStatusCounts();
 

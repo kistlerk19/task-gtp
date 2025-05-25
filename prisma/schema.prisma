@@ -84,7 +84,7 @@ model Task {
 
   // Comments/notes
   notes    String?
-  comments Comment[]
+  comments    Comment[]  @relation("TaskComments")
 
   // Notifications
   notifications Notification[]
@@ -100,7 +100,7 @@ model Comment {
 
   // Relationships
   taskId   String
-  task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task      Task     @relation("TaskComments", fields: [taskId], references: [id])  
   authorId String
   author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
