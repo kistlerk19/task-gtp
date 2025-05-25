@@ -1,172 +1,273 @@
+// components/TaskForm.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import TaskForm from '@/components/TaskForm';
-import { useAuth } from '@/hooks/useAuth';
-import { Task, User } from '@/lib/types';
-import Link from 'next/link';
-import { ArrowLeft, Save, Users } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Task, User, TaskStatus, TaskPriority } from '@/lib/types';
+import Button from './ui/Button';
+import Input from './ui/Input';
+import Select from './ui/Select';
+import Card from './ui/Card';
 
-export default function CreateTaskPage() {
-  const router = useRouter();
-  const { user } = useAuth();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [teamMembers, setTeamMembers] = useState<User[]>([]);
+interface TaskFormProps {
+  task?: Task & { assignedTo?: User };
+  users?: User[];
+  onSubmit: (taskData: TaskFormData) => void;
+  onCancel?: () => void;
+  isLoading?: boolean;
+  mode?: 'create' | 'edit';
+}
 
-  useEffect(() => {
-    const fetchTeamMembers = async () => {
-      try {
-        const response = await fetch('/api/users', { cache: 'no-store' });
-        if (response.ok) {
-          const users = await response.json();
-          console.log('Fetched users:', users);
-          setTeamMembers(users.filter((u: User) => u.role === 'TEAM_MEMBER'));
-        } else {
-          console.error('Failed to fetch users:', await response.text());
-        }
-      } catch (error) {
-        console.error('Error fetching team members:', error);
-      }
-    };
+export interface TaskFormData {
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  dueDate: string;
+  assignedToId: string;
+}
 
-    fetchTeamMembers();
-  }, []);
+const TaskForm: React.FC<TaskFormProps> = ({
+  task,
+  users = [],
+  onSubmit,
+  onCancel,
+  isLoading = false,
+  mode = 'create'
+}) => {
+  const [formData, setFormData] = useState<TaskFormData>({
+    title: task?.title || '',
+    description: task?.description || '',
+    priority: task?.priority || 'MEDIUM',
+    status: task?.status || 'PENDING',
+    dueDate: task?.dueDate 
+    ? new Date(task.dueDate).toISOString().slice(0, 16) 
+    : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),    assignedToId: task?.assignedToId || ''
+  });
 
-  const handleSubmit = async (taskData: Partial<Task>) => {
-    setIsSubmitting(true);
-    try {
-      const response = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...taskData,
-          createdById: user?.id,
-        }),
-      });
+  const [errors, setErrors] = useState<Partial<TaskFormData>>({});
 
-      if (response.ok) {
-        const newTask = await response.json();
-        if (taskData.assignedToId) {
-          await fetch('/api/notifications', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              userId: taskData.assignedToId,
-              type: 'TASK_ASSIGNED',
-              title: 'New Task Assigned',
-              message: `You have been assigned a new task: "${taskData.title}"`,
-              taskId: newTask.id,
-            }),
-          });
-
-          await fetch('/api/email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: newTask.assignedTo?.email || '',
-              subject: 'New Task Assignment',
-              taskId: newTask.id,
-              type: 'TASK_ASSIGNED',
-            }),
-          });
-        }
-        router.push('/admin/tasks');
-      } else {
-        const error = await response.text();
-        alert('Error creating task: ' + error);
-      }
-    } catch (error) {
-      console.error('Error creating task:', error);
-      alert('Error creating task. Please try again.');
-    } finally {
-      setIsSubmitting(false);
+  const handleInputChange = (field: keyof TaskFormData, value: string) => {
+    // Ensure value is always a string and not a DOM element
+    const stringValue = typeof value === 'string' ? value : String(value);
+    
+    setFormData(prev => ({ ...prev, [field]: stringValue }));
+    
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: undefined }));
     }
   };
 
-  console.log('Team members in render:', teamMembers);
+  // Simple handler for select elements - now receives only string values
+  const handleSelectChange = (field: keyof TaskFormData, value: string) => {
+    handleInputChange(field, value);
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: Partial<TaskFormData> = {};
+
+    if (!formData.title.trim()) {
+      newErrors.title = 'Title is required';
+    }
+
+    if (!formData.description.trim()) {
+      newErrors.description = 'Description is required';
+    }
+
+    if (!formData.dueDate) {
+      newErrors.dueDate = 'Deadline is required';
+    } else {
+      const dueDateDate = new Date(formData.dueDate);
+      const now = new Date();
+      if (dueDateDate <= now) {
+        newErrors.dueDate = 'Deadline must be in the future';
+      }
+    }
+
+    if (!formData.assignedToId && mode === 'create') {
+      newErrors.assignedToId = 'Please select a team member';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (validateForm()) {
+      // Create a clean copy of form data with only primitive values
+      const cleanFormData: TaskFormData = {
+        title: String(formData.title).trim(),
+        description: String(formData.description).trim(),
+        priority: formData.priority as TaskPriority,
+        status: formData.status as TaskStatus,
+        dueDate: String(formData.dueDate),
+        assignedToId: String(formData.assignedToId || '')
+      };
+      
+      console.log('Submitting clean form data:', cleanFormData);
+      onSubmit(cleanFormData);
+    }
+  };
+
+  const priorityOptions = [
+    { value: 'LOW', label: '🟢 Low Priority' },
+    { value: 'MEDIUM', label: '🟡 Medium Priority' },
+    { value: 'HIGH', label: '🔴 High Priority' }
+  ];
+
+  const statusOptions = [
+    { value: 'PENDING', label: '⏳ Pending' },
+    { value: 'IN_PROGRESS', label: '🔄 In Progress' },
+    { value: 'COMPLETED', label: '✅ Completed' },
+    { value: 'CANCELLED', label: '❌ Cancelled' }
+  ];
+
+  const userOptions = users.map(user => ({
+    value: user.id,
+    label: `${user.name} (${user.email})`
+  }));
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
-        <Link href="/admin/tasks">
-          <Button variant="outline" size="sm" className="flex items-center gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Tasks
-          </Button>
-        </Link>
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900">Create New Task</h1>
-          <p className="text-gray-600 mt-1">
-            Create and assign a new task to your team members
+    <Card>
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <div className="border-b border-gray-200 pb-4">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {mode === 'create' ? 'Create New Task' : 'Edit Task'}
+          </h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {mode === 'create' 
+              ? 'Fill in the details to create a new task for your team'
+              : 'Update the task details below'
+            }
           </p>
         </div>
-      </div>
 
-      {teamMembers.length > 0 ? (
-        <Card className="p-6 bg-blue-50 border-blue-200">
-          <div className="flex items-center gap-3 mb-3">
-            <Users className="h-5 w-5 text-blue-600" />
-            <h3 className="font-medium text-blue-900">Available Team Members</h3>
+        {/* Title */}
+        <div>
+          <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
+            Task Title *
+          </label>
+          <Input
+            id="title"
+            type="text"
+            value={formData.title}
+            onChange={(e) => handleInputChange('title', e.target.value)}
+            placeholder="Enter task title..."
+            error={errors.title}
+            disabled={isLoading}
+          />
+        </div>
+
+        {/* Description */}
+        <div>
+          <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+            Description *
+          </label>
+          <textarea
+            id="description"
+            rows={4}
+            value={formData.description}
+            onChange={(e) => handleInputChange('description', e.target.value)}
+            placeholder="Describe the task in detail..."
+            disabled={isLoading}
+            className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors ${
+              errors.description ? 'border-red-500' : ''
+            } ${isLoading ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+          />
+          {errors.description && (
+            <p className="text-red-500 text-sm mt-1">{errors.description}</p>
+          )}
+        </div>
+
+        {/* Priority and Status */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-2">
+              Priority *
+            </label>
+            <Select
+              id="priority"
+              value={formData.priority}
+              onChange={(value) => handleSelectChange('priority', value)}
+              options={priorityOptions}
+              disabled={isLoading}
+            />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {teamMembers.map((member) => (
-              <span
-                key={member.id}
-                className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-              >
-                {member.name || 'Unnamed Member'}
-              </span>
-            ))}
+
+          <div>
+            <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-2">
+              Status *
+            </label>
+            <Select
+              id="status"
+              value={formData.status}
+              onChange={(value) => handleSelectChange('status', value)}
+              options={statusOptions}
+              disabled={isLoading}
+            />
           </div>
-          <p className="text-sm text-blue-700 mt-2">
-            You can assign this task to any of the above team members
-          </p>
-        </Card>
-      ) : (
-        <Card className="p-6 bg-yellow-50 border-yellow-200">
-          <p className="text-sm text-yellow-700">No team members available to assign tasks.</p>
-        </Card>
-      )}
+        </div>
 
-      <Card className="p-8">
-        <TaskForm
-          onSubmit={handleSubmit}
-          isSubmitting={isSubmitting}
-          users={teamMembers} // Changed from teamMembers to users
-          submitButtonText="Create Task"
-        />
-      </Card>
+        {/* Deadline */}
+        <div>
+          <label htmlFor="dueDate" className="block text-sm font-medium text-gray-700 mb-2">
+            Deadline *
+          </label>
+          <Input
+            id="dueDate"
+            type="datetime-local"
+            value={formData.dueDate}
+            onChange={(e) => handleInputChange('dueDate', e.target.value)}
+            error={errors.dueDate}
+            disabled={isLoading}
+          />
+        </div>
 
-      <Card className="p-6 bg-gray-50">
-        <h3 className="font-medium text-gray-900 mb-3">Task Creation Guidelines</h3>
-        <ul className="space-y-2 text-sm text-gray-600">
-          <li className="flex items-start gap-2">
-            <span className="text-blue-600 font-bold">•</span>
-            <span>Provide clear and detailed task descriptions to avoid confusion</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-blue-600 font-bold">•</span>
-            <span>Set realistic deadlines considering task complexity and team member availability</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-blue-600 font-bold">•</span>
-            <span>Assign appropriate priority levels to help team members prioritize their work</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-blue-600 font-bold">•</span>
-            <span>Team members will receive email notifications when tasks are assigned to them</span>
-          </li>
-        </ul>
-      </Card>
-    </div>
+        {/* Assigned To (only for create mode or admin) */}
+        {(mode === 'create' || users.length > 0) && (
+          <div>
+            <label htmlFor="assignedTo" className="block text-sm font-medium text-gray-700 mb-2">
+              Assign To {mode === 'create' ? '*' : ''}
+            </label>
+            <Select
+              id="assignedTo"
+              value={formData.assignedToId}
+              onChange={(value) => handleSelectChange('assignedToId', value)}
+              options={[
+                { value: '', label: 'Select team member...' },
+                ...userOptions
+              ]}
+              error={errors.assignedToId}
+              disabled={isLoading}
+            />
+          </div>
+        )}
+
+        {/* Form Actions */}
+        <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
+          {onCancel && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancel}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+          )}
+          <Button
+            type="submit"
+            disabled={isLoading}
+            loading={isLoading}
+          >
+            {mode === 'create' ? 'Create Task' : 'Update Task'}
+          </Button>
+        </div>
+      </form>
+    </Card>
   );
-}
+};
+
+export default TaskForm;

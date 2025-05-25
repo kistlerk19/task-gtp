@@ -1,4 +1,3 @@
-
 export enum Role {
   ADMIN = 'ADMIN',
   TEAM_MEMBER = 'TEAM_MEMBER'
@@ -18,6 +17,12 @@ export enum TaskPriority {
   URGENT = 'URGENT'
 }
 
+export enum NotificationType {
+  TASK_ASSIGNED = 'TASK_ASSIGNED',
+  TASK_UPDATE = 'TASK_UPDATE'
+  // Add other notification types as needed
+}
+
 export interface User {
   id: string
   email: string
@@ -31,37 +36,40 @@ export interface User {
 }
 
 export interface Task {
-  id: string
-  title: string
-  description?: string | null
-  status: TaskStatus
-  priority: TaskPriority
-  dueDate?: Date | null
-  completedAt?: Date | null
-  createdAt: Date
-  updatedAt: Date
-  assignedToId?: string | null
-  createdById: string
-  location?: string | null
-  coordinates?: string | null
-  attachments: string[]
-  notes?: string | null
-  
-  // Relations
-  assignedTo?: User | null
-  createdBy: User
+  id: string;
+  title: string;
+  description?: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate?: string | null; // Changed from Date to string
+  completedAt?: string | null; // Changed from Date to string
+  createdAt: string; // Changed from Date to string
+  updatedAt: string; // Changed from Date to string
+  assignedToId?: string | null;
+  createdById: string;
+  location?: string | null;
+  coordinates?: string | null;
+  attachments?: string[];
+  notes?: string | null;
+  assignedTo?: User | null;
+  createdBy: User;
+  comments?: { // Added comments field
+    id: string;
+    content: string;
+    author: string;
+    createdAt: string;
+  }[];
 }
 
 export interface Notification {
   id: string
   title: string
   message: string
+  type: NotificationType // Add the type field
   isRead: boolean
   createdAt: Date
   userId: string
   taskId?: string | null
-  
-  // Relations
   user: User
   task?: Task | null
 }
@@ -119,7 +127,6 @@ export interface NotificationWithTask extends Notification {
   task: Task | null
 }
 
-// API Response types
 export interface ApiResponse<T = any> {
   success: boolean
   data?: T
@@ -136,7 +143,6 @@ export interface PaginatedResponse<T> extends ApiResponse<T[]> {
   }
 }
 
-// Form types
 export interface LoginForm {
   email: string
   password: string
@@ -158,7 +164,6 @@ export interface TaskFormData {
   location: string
 }
 
-// Email types
 export interface EmailData {
   to: string
   subject: string
@@ -191,7 +196,6 @@ export interface DeadlineReminderEmail {
   daysUntilDue: number
 }
 
-// Utility types
 export type TaskStatusColor = {
   [key in TaskStatus]: string
 }

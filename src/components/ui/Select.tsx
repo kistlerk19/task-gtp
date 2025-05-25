@@ -7,12 +7,13 @@ interface SelectOption {
   disabled?: boolean;
 }
 
-interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange'> {
   label?: string;
   error?: string;
   helperText?: string;
-  options?: SelectOption[]; // Make options optional
+  options?: SelectOption[];
   placeholder?: string;
+  onChange?: (value: string) => void; // Custom onChange that passes only the value
 }
 
 const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
@@ -22,9 +23,10 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       label,
       error,
       helperText,
-      options = [], // Default to empty array
+      options = [],
       placeholder = 'Select an option',
       id,
+      onChange,
       ...props
     },
     ref
@@ -37,6 +39,13 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     const errorClasses = error
       ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
       : '';
+
+    const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      // Extract only the string value and pass it to onChange
+      if (onChange) {
+        onChange(e.target.value);
+      }
+    };
 
     const chevronIcon = (
       <svg
@@ -70,6 +79,7 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             id={selectId}
             className={cn(baseClasses, errorClasses, className)}
             ref={ref}
+            onChange={handleChange}
             {...props}
           >
             {placeholder && (

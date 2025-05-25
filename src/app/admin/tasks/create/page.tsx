@@ -1,88 +1,150 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import TaskForm from '@/components/TaskForm';
+import TaskForm, { TaskFormData } from '@/components/TaskForm';
 import { useAuth } from '@/hooks/useAuth';
-import { Task, User } from '@/lib/types';
+import { User } from '@/lib/types';
 import Link from 'next/link';
-import { ArrowLeft, Save, Users } from 'lucide-react';
+import { ArrowLeft, Users } from 'lucide-react';
 
 export default function CreateTaskPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchTeamMembers = async () => {
-      try {
-        const response = await fetch('/api/users', { cache: 'no-store' });
-        if (response.ok) {
-          const users = await response.json();
-          console.log('Fetched users:', users);
-          setTeamMembers(users.filter((u: User) => u.role === 'TEAM_MEMBER'));
-        } else {
-          console.error('Failed to fetch users:', await response.text());
+  // Use useCallback to memoize the fetch function
+  const fetchTeamMembers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/users', { 
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
         }
-      } catch (error) {
-        console.error('Error fetching team members:', error);
+      });
+      
+      if (response.ok) {
+        const users = await response.json();
+        
+        // Filter team members and ensure we have valid data
+        const validTeamMembers = users.filter((u: User) => 
+          u && u.role === 'TEAM_MEMBER' && u.id
+        );
+        
+        setTeamMembers(validTeamMembers);
+        console.log('Team members fetched:', validTeamMembers);
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to fetch users:', errorText);
+        setError(`Failed to fetch users: ${response.status}`);
       }
-    };
-
-    fetchTeamMembers();
+    } catch (error) {
+      console.error('Error fetching team members:', error);
+      setError('Error fetching team members');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleSubmit = async (taskData: Partial<Task>) => {
+  // Use useEffect with proper dependencies
+  useEffect(() => {
+    fetchTeamMembers();
+  }, [fetchTeamMembers]);
+
+  // Log team members only when they change, not on every render
+  useEffect(() => {
+    if (teamMembers.length > 0) {
+      console.log('Team members updated:', teamMembers);
+    }
+  }, [teamMembers]);
+
+  const handleSubmit = async (taskData: TaskFormData) => {
+    if (isSubmitting) return; // Prevent double submission
+    
     setIsSubmitting(true);
     try {
+      // Convert TaskFormData to API format
+      const apiTaskData = {
+        title: taskData.title,
+        description: taskData.description,
+        priority: taskData.priority,
+        status: taskData.status,
+        dueDate: taskData.dueDate,
+        assignedToId: taskData.assignedToId || null,
+        createdById: user?.id,
+      };
+
+      console.log('Sending to API:', apiTaskData);
+
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...taskData,
-          createdById: user?.id,
-        }),
+        body: JSON.stringify(apiTaskData),
       });
 
       if (response.ok) {
         const newTask = await response.json();
-        if (taskData.assignedToId) {
-          await fetch('/api/notifications', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              userId: taskData.assignedToId,
-              type: 'TASK_ASSIGNED',
-              title: 'New Task Assigned',
-              message: `You have been assigned a new task: "${taskData.title}"`,
-              taskId: newTask.id,
-            }),
-          });
+        
+        // Handle notifications in parallel
+        const promises = [];
+        
+        if (apiTaskData.assignedToId) {
+          // Create notification
+          promises.push(
+            fetch('/api/notifications', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                userId: apiTaskData.assignedToId,
+                type: 'TASK_ASSIGNED',
+                title: 'New Task Assigned',
+                message: `You have been assigned a new task: "${apiTaskData.title}"`,
+                taskId: newTask.id,
+              }),
+            })
+          );
 
-          await fetch('/api/email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: newTask.assignedTo?.email || '',
-              subject: 'New Task Assignment',
-              taskId: newTask.id,
-              type: 'TASK_ASSIGNED',
-            }),
-          });
+          // Send email
+          promises.push(
+            fetch('/api/email', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                to: newTask.assignedTo?.email || '',
+                subject: 'New Task Assignment',
+                taskId: newTask.id,
+                type: 'TASK_ASSIGNED',
+              }),
+            })
+          );
         }
+
+        // Wait for notifications to complete (but don't block on errors)
+        try {
+          await Promise.allSettled(promises);
+        } catch (notificationError) {
+          console.error('Error sending notifications:', notificationError);
+          // Continue anyway - task was created successfully
+        }
+
         router.push('/admin/tasks');
       } else {
-        const error = await response.text();
-        alert('Error creating task: ' + error);
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        alert('Error creating task: ' + (errorData.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error creating task:', error);
@@ -91,8 +153,6 @@ export default function CreateTaskPage() {
       setIsSubmitting(false);
     }
   };
-
-  console.log('Team members in render:', teamMembers);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -111,11 +171,29 @@ export default function CreateTaskPage() {
         </div>
       </div>
 
-      {teamMembers.length > 0 ? (
+      {loading ? (
+        <Card className="p-6">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <span className="ml-2 text-gray-600">Loading team members...</span>
+          </div>
+        </Card>
+      ) : error ? (
+        <Card className="p-6 bg-red-50 border-red-200">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="h-5 w-5 text-red-600">⚠️</div>
+            <h3 className="font-medium text-red-900">Error Loading Team Members</h3>
+          </div>
+          <p className="text-sm text-red-700 mb-3">{error}</p>
+          <Button onClick={fetchTeamMembers} size="sm" variant="outline">
+            Retry
+          </Button>
+        </Card>
+      ) : teamMembers.length > 0 ? (
         <Card className="p-6 bg-blue-50 border-blue-200">
           <div className="flex items-center gap-3 mb-3">
             <Users className="h-5 w-5 text-blue-600" />
-            <h3 className="font-medium text-blue-900">Available Team Members</h3>
+            <h3 className="font-medium text-blue-900">Available Team Members ({teamMembers.length})</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             {teamMembers.map((member) => (
@@ -133,16 +211,22 @@ export default function CreateTaskPage() {
         </Card>
       ) : (
         <Card className="p-6 bg-yellow-50 border-yellow-200">
-          <p className="text-sm text-yellow-700">No team members available to assign tasks.</p>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-5 w-5 text-yellow-600">⚠️</div>
+            <h3 className="font-medium text-yellow-900">No Team Members Available</h3>
+          </div>
+          <p className="text-sm text-yellow-700">
+            No team members are available to assign tasks. Make sure you have users with the 'TEAM_MEMBER' role.
+          </p>
         </Card>
       )}
 
       <Card className="p-8">
         <TaskForm
           onSubmit={handleSubmit}
-          isSubmitting={isSubmitting}
-          users={teamMembers} // Changed from teamMembers to users
-          submitButtonText="Create Task"
+          users={teamMembers}
+          isLoading={isSubmitting}
+          mode="create"
         />
       </Card>
 

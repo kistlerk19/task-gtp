@@ -1,183 +1,203 @@
 // hooks/useTasks.ts
-'use client';
+import { useState, useCallback } from 'react';
+import useSWR from 'swr';
+import { Task, TaskStatus, UpdateTaskData } from '@/lib/types';
 
-import { useState, useEffect, useCallback } from 'react';
-import useSWR, { mutate } from 'swr'; // Import useSWR and mutate
-import { Task, User, TaskStatus, TaskPriority } from '@/lib/types';
-import { TaskFormData } from '@/components/TaskForm';
-
-interface UseTasksOptions {
-  userId?: string;
-  status?: TaskStatus;
-  priority?: TaskPriority;
-  assignedToId?: string;
-}
-
-interface UseTasksReturn {
-  tasks: (Task & { assignedTo?: User; assignedBy?: User })[];
-  isLoading: boolean;
-  error: string | null;
-  createTask: (taskData: TaskFormData) => Promise<Task | null>;
-  updateTask: (taskId: string, taskData: Partial<TaskFormData>) => Promise<Task | null>;
-  deleteTask: (taskId: string) => Promise<boolean>;
-  getTask: (taskId: string) => Promise<(Task & { assignedTo?: User; assignedBy?: User }) | null>;
-  updateTaskStatus: (taskId: string, status: TaskStatus) => Promise<boolean>;
-  refreshTasks: () => void; // Changed to void as SWR handles refresh
-}
-
-// Global fetcher function for SWR
-const swrFetcher = async (url: string) => {
-  const res = await fetch(url);
-  if (!res.ok) {
-    const errorData = await res.json();
-    throw new Error(errorData.error || 'Failed to fetch data');
+// Fetcher function with better error handling
+const fetcher = async (url: string): Promise<any> => {
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage = `HTTP ${response.status}`;
+    
+    try {
+      const errorData = JSON.parse(errorText);
+      errorMessage = errorData.error || errorData.message || errorMessage;
+    } catch {
+      errorMessage = errorText || errorMessage;
+    }
+    
+    throw new Error(errorMessage);
   }
-  return res.json();
+
+  const text = await response.text();
+  if (!text) {
+    throw new Error('Empty response from server');
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('JSON parse error:', error, 'Response text:', text);
+    throw new Error('Invalid JSON response from server');
+  }
 };
 
-export const useTasks = (options: UseTasksOptions = {}): UseTasksReturn => {
-  // Build SWR key based on options
-  const swrKey = `/api/tasks?${new URLSearchParams(options as Record<string, string>).toString()}`;
+export function useTasks() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const { 
+    data: tasks, 
+    error, 
+    isLoading, 
+    mutate 
+  } = useSWR<Task[]>('/api/tasks', fetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+    dedupingInterval: 2000,
+    errorRetryCount: 3,
+    errorRetryInterval: 1000,
+  });
 
-  // Use SWR for fetching tasks
-  const { data: tasks, error, isLoading } = useSWR<
-    (Task & { assignedTo?: User; assignedBy?: User })[]
-  >(swrKey, swrFetcher);
+  const getTask = useCallback(async (id: string): Promise<Task | null> => {
+    try {
+      const task = await fetcher(`/api/tasks/${id}`);
+      return task;
+    } catch (error) {
+      console.error('Error fetching task:', error);
+      return null;
+    }
+  }, []);
 
-  const currentTasks = tasks || []; // Ensure tasks is always an array
+  const updateTask = useCallback(async (
+    id: string, 
+    data: UpdateTaskData
+  ): Promise<boolean> => {
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`/api/tasks/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
 
-  // Memoize the refresh function for explicit revalidation
-  const refreshTasks = useCallback(() => {
-    mutate(swrKey); // Tell SWR to revalidate the data for this key
-  }, [swrKey]);
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `HTTP ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
+      }
 
-  const createTask = useCallback(async (taskData: TaskFormData): Promise<Task | null> => {
+      const text = await response.text();
+      if (text) {
+        try {
+          JSON.parse(text);
+        } catch (error) {
+          console.error('JSON parse error on update:', error);
+          throw new Error('Invalid response from server');
+        }
+      }
+
+      // Revalidate the tasks list
+      await mutate();
+      return true;
+    } catch (error) {
+      console.error('Error updating task:', error);
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [mutate]);
+
+  const updateTaskStatus = useCallback(async (
+    id: string, 
+    status: TaskStatus
+  ): Promise<boolean> => {
+    return updateTask(id, { status });
+  }, [updateTask]);
+
+  const createTask = useCallback(async (data: any): Promise<boolean> => {
+    setIsSubmitting(true);
     try {
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(taskData),
+        body: JSON.stringify(data),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create task');
+        const errorText = await response.text();
+        let errorMessage = `HTTP ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
       }
 
-      const newTask = await response.json();
-      mutate(swrKey, (prevTasks: typeof tasks) => [newTask, ...(prevTasks || [])], false); // Update SWR cache without re-fetching immediately
-      return newTask;
-    } catch (err) {
-      console.error('Error creating task:', err);
-      // SWR handles setting global error state
-      return null;
+      // Revalidate the tasks list
+      await mutate();
+      return true;
+    } catch (error) {
+      console.error('Error creating task:', error);
+      return false;
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [swrKey]); // Depend on swrKey for cache mutation
+  }, [mutate]);
 
-  const updateTask = useCallback(async (taskId: string, taskData: Partial<TaskFormData>): Promise<Task | null> => {
+  const deleteTask = useCallback(async (id: string): Promise<boolean> => {
+    setIsSubmitting(true);
     try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(taskData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update task');
-      }
-
-      const updatedTask = await response.json();
-      mutate(swrKey, (prevTasks: typeof tasks) =>
-        (prevTasks || []).map(task =>
-          task.id === taskId ? { ...task, ...updatedTask } : task
-        ), false); // Update SWR cache
-      return updatedTask;
-    } catch (err) {
-      console.error('Error updating task:', err);
-      return null;
-    }
-  }, [swrKey]);
-
-  const deleteTask = useCallback(async (taskId: string): Promise<boolean> => {
-    try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
+      const response = await fetch(`/api/tasks/${id}`, {
         method: 'DELETE',
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete task');
+        const errorText = await response.text();
+        let errorMessage = `HTTP ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
       }
-      mutate(swrKey, (prevTasks: typeof tasks) =>
-        (prevTasks || []).filter(task => task.id !== taskId), false); // Update SWR cache
+
+      // Revalidate the tasks list
+      await mutate();
       return true;
-    } catch (err) {
-      console.error('Error deleting task:', err);
+    } catch (error) {
+      console.error('Error deleting task:', error);
       return false;
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [swrKey]);
+  }, [mutate]);
 
-  const getTask = useCallback(async (taskId: string): Promise<(Task & { assignedTo?: User; assignedBy?: User }) | null> => {
-    try {
-      // For a single task, it's often better to fetch directly
-      // or use a separate SWR key if this is frequently accessed directly.
-      const response = await fetch(`/api/tasks/${taskId}`);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch task');
-      }
-
-      const task = await response.json();
-      return task;
-    } catch (err) {
-      console.error('Error fetching single task:', err);
-      return null;
-    }
-  }, []); // No specific dependencies needed here unless the base URL changes
-
-  const updateTaskStatus = useCallback(async (taskId: string, status: TaskStatus): Promise<boolean> => {
-    try {
-      const response = await fetch(`/api/tasks/${taskId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update task status');
-      }
-
-      const updatedTask = await response.json();
-      mutate(swrKey, (prevTasks: typeof tasks) =>
-        (prevTasks || []).map(task =>
-          task.id === taskId ? { ...task, ...updatedTask } : task
-        ), false); // Update SWR cache
-      return true;
-    } catch (err) {
-      console.error('Error updating task status:', err);
-      return false;
-    }
-  }, [swrKey]);
-
+  const refreshTasks = useCallback(() => {
+    mutate();
+  }, [mutate]);
 
   return {
-    tasks: currentTasks,
+    tasks: tasks || [],
     isLoading,
-    error: error ? error.message : null, // Extract message from SWR error object
-    createTask,
-    updateTask,
-    deleteTask,
+    error: error?.message || null,
+    isSubmitting,
     getTask,
+    updateTask,
     updateTaskStatus,
-    refreshTasks
+    createTask,
+    deleteTask,
+    refreshTasks,
   };
-};
+}

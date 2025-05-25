@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { sendEmail } from '@/lib/email';
+import {sendTaskAssignmentEmail} from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     // Send emails to all recipients
     const emailPromises = users.map(user => 
-      sendEmail(user.email, subject, message)
+      sendTaskAssignmentEmail(user.email, subject, message)
     );
 
     await Promise.all(emailPromises);

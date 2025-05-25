@@ -30,14 +30,14 @@ enum TaskPriority {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  password  String?  
-  role      Role     @default(TEAM_MEMBER)
-  avatar    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String?
+  role          Role      @default(TEAM_MEMBER)
+  avatar        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   // NextAuth fields
   emailVerified DateTime?
@@ -46,8 +46,11 @@ model User {
   sessions      Session[]
 
   // Task relationships
-  assignedTasks Task[] @relation("AssignedTo")
-  createdTasks  Task[] @relation("CreatedBy") // For admin who creates tasks
+  assignedTasks Task[]    @relation("AssignedTo")
+  createdTasks  Task[]    @relation("CreatedBy") // For admin who creates tasks
+
+  // Comments
+  comments      Comment[]
 
   // Notifications
   notifications Notification[]
@@ -56,15 +59,15 @@ model User {
 }
 
 model Task {
-  id          String       @id @default(cuid())
+  id          String        @id @default(cuid())
   title       String
   description String?
-  status      TaskStatus   @default(PENDING)
-  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus    @default(PENDING)
+  priority    TaskPriority  @default(MEDIUM)
   dueDate     DateTime?
   completedAt DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   // Relationships
   assignedToId String?
@@ -80,7 +83,8 @@ model Task {
   attachments String[] // Array of file URLs
 
   // Comments/notes
-  notes String?
+  notes    String?
+  comments Comment[]
 
   // Notifications
   notifications Notification[]
@@ -88,19 +92,40 @@ model Task {
   @@map("tasks")
 }
 
-model Notification {
+model Comment {
   id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  taskId   String
+  task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_UPDATE
+  // Add other notification types as needed
+}
+
+model Notification {
+  id        String           @id @default(cuid())
   title     String
   message   String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  type      NotificationType
 
   // Relationships
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
   taskId String?
-  task   Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task   Task?  @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
@@ -131,7 +156,8 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
