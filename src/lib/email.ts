@@ -1,8 +1,8 @@
 // lib/email.ts
-import nodemailer from 'nodemailer'
-import { TaskAssignmentEmail, TaskUpdateEmail, DeadlineReminderEmail } from './types'
+import nodemailer from 'nodemailer';
+import { TaskAssignmentEmail, TaskUpdateEmail, DeadlineReminderEmail } from './types';
 
-const transporter = nodemailer.createTransporter({
+const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT || '587'),
   secure: process.env.SMTP_SECURE === 'true',
@@ -10,12 +10,12 @@ const transporter = nodemailer.createTransporter({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-})
+});
 
 export const sendTaskAssignmentEmail = async (data: TaskAssignmentEmail) => {
-  const { taskTitle, taskDescription, assigneeName, assigneeEmail, dueDate, priority, adminName } = data
+  const { taskTitle, taskDescription, assigneeName, assigneeEmail, dueDate, priority, adminName } = data;
 
-  const subject = `New Task Assigned: ${taskTitle}`
+  const subject = `New Task Assigned: ${taskTitle}`;
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -59,20 +59,20 @@ export const sendTaskAssignmentEmail = async (data: TaskAssignmentEmail) => {
         <p>This is an automated message from the Task Management System.</p>
       </div>
     </div>
-  `
+  `;
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM,
     to: assigneeEmail,
     subject,
     html,
-  })
-}
+  });
+};
 
 export const sendTaskUpdateEmail = async (data: TaskUpdateEmail) => {
-  const { taskTitle, newStatus, assigneeName, notes, completedAt } = data
+  const { taskTitle, newStatus, assigneeName, notes, completedAt } = data;
 
-  const subject = `Task Updated: ${taskTitle}`
+  const subject = `Task Updated: ${taskTitle}`;
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -112,17 +112,16 @@ export const sendTaskUpdateEmail = async (data: TaskUpdateEmail) => {
         <p>This is an automated message from the Task Management System.</p>
       </div>
     </div>
-  `
+  `;
 
-  // In a real app, you'd get the assignee's email from the database
-  // For now, this would be called with the email address
-  console.log('Task update email would be sent:', { subject, html })
-}
+  // Note: This function currently logs instead of sending. Update if needed.
+  console.log('Task update email would be sent:', { subject, html });
+};
 
 export const sendDeadlineReminderEmail = async (data: DeadlineReminderEmail) => {
-  const { taskTitle, dueDate, assigneeName, daysUntilDue } = data
+  const { taskTitle, dueDate, assigneeName, daysUntilDue } = data;
 
-  const subject = `Reminder: Task "${taskTitle}" due ${daysUntilDue === 0 ? 'today' : `in ${daysUntilDue} days`}`
+  const subject = `Reminder: Task "${taskTitle}" due ${daysUntilDue === 0 ? 'today' : `in ${daysUntilDue} days`}`;
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -163,39 +162,39 @@ export const sendDeadlineReminderEmail = async (data: DeadlineReminderEmail) => 
         <p>This is an automated message from the Task Management System.</p>
       </div>
     </div>
-  `
+  `;
 
-  // In a real app, you'd get the assignee's email from the database
-  console.log('Deadline reminder email would be sent:', { subject, html })
-}
+  // Note: This function currently logs instead of sending. Update if needed.
+  console.log('Deadline reminder email would be sent:', { subject, html });
+};
 
 // Helper functions for email styling
 const getPriorityColor = (priority: string): string => {
   switch (priority) {
-    case 'URGENT': return '#dc3545'
-    case 'HIGH': return '#fd7e14'
-    case 'MEDIUM': return '#ffc107'
-    case 'LOW': return '#28a745'
-    default: return '#6c757d'
+    case 'URGENT': return '#dc3545';
+    case 'HIGH': return '#fd7e14';
+    case 'MEDIUM': return '#ffc107';
+    case 'LOW': return '#28a745';
+    default: return '#6c757d';
   }
-}
+};
 
 const getStatusColor = (status: string): string => {
   switch (status) {
-    case 'COMPLETED': return '#28a745'
-    case 'IN_PROGRESS': return '#007bff'
-    case 'PENDING': return '#ffc107'
-    case 'OVERDUE': return '#dc3545'
-    default: return '#6c757d'
+    case 'COMPLETED': return '#28a745';
+    case 'IN_PROGRESS': return '#007bff';
+    case 'PENDING': return '#ffc107';
+    case 'OVERDUE': return '#dc3545';
+    default: return '#6c757d';
   }
-}
+};
 
 export const testEmailConnection = async (): Promise<boolean> => {
   try {
-    await transporter.verify()
-    return true
+    await transporter.verify();
+    return true;
   } catch (error) {
-    console.error('Email connection failed:', error)
-    return false
+    console.error('Email connection failed:', error);
+    return false;
   }
-}
+};
