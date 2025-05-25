@@ -6,8 +6,11 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import TaskCard from '@/components/TaskCard';
+import TaskDetailsModal from '@/components/TaskDetailsModal';
+import EditTaskModal from '@/components/EditTaskModal';
 import { useTasks } from '@/hooks/useTasks';
-import { Task, TaskStatus, TaskPriority } from '@/lib/types';
+import { useUsers } from '@/hooks/useUser';
+import { Task, TaskStatus, TaskPriority, User } from '@/lib/types';
 import Link from 'next/link';
 import { 
   Plus, 
@@ -15,15 +18,17 @@ import {
   Filter,
   Calendar,
   Users,
-  SortAsc,
-  SortDesc
+  Eye,
+  Edit,
+  Trash2
 } from 'lucide-react';
 
 type SortField = 'dueDate' | 'createdAt' | 'title' | 'priority' | 'status';
 type SortDirection = 'asc' | 'desc';
 
 export default function AdminTasksPage() {
-  const { tasks, loading, updateTask, deleteTask } = useTasks();
+  const { tasks, isLoading: loading, updateTask, deleteTask, refetch } = useTasks();
+  const { users } = useUsers();
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -32,6 +37,11 @@ export default function AdminTasksPage() {
   const [sortField, setSortField] = useState<SortField>('dueDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Modal states
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Get unique assignees for filter
   const assignees = Array.from(
@@ -133,6 +143,64 @@ export default function AdminTasksPage() {
     setAssigneeFilter('all');
     setSortField('dueDate');
     setSortDirection('asc');
+  };
+
+  // Modal handlers
+  const handleViewTask = (task: Task) => {
+    setSelectedTask(task);
+    setShowDetailsModal(true);
+  };
+
+  const handleEditTask = (task: Task) => {
+    setSelectedTask(task);
+    setShowEditModal(true);
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete task');
+      }
+
+      await deleteTask(taskId);
+      await refetch(); // Refresh the tasks list
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      throw error;
+    }
+  };
+
+  const handleUpdateTask = async (taskId: string, updates: Partial<Task>) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update task');
+      }
+
+      const updatedTask = await response.json();
+      await updateTask(updatedTask);
+      await refetch(); // Refresh the tasks list
+    } catch (error) {
+      console.error('Error updating task:', error);
+      throw error;
+    }
+  };
+
+  const closeModals = () => {
+    setShowDetailsModal(false);
+    setShowEditModal(false);
+    setSelectedTask(null);
   };
 
   if (loading) {
@@ -286,14 +354,48 @@ export default function AdminTasksPage() {
       {filteredTasks.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onUpdate={updateTask}
-              onDelete={deleteTask}
-              showAssignee={true}
-              actions={['edit', 'delete', 'assign']}
-            />
+            <div key={task.id} className="relative group">
+              <TaskCard
+                task={task}
+                onUpdate={updateTask}
+                onDelete={handleDeleteTask}
+                showAssignee={true}
+                actions={['edit', 'delete', 'assign']}
+              />
+              
+              {/* Admin Action Overlay */}
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex gap-1 bg-white rounded-lg shadow-lg p-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleViewTask(task)}
+                    className="h-8 w-8 p-0"
+                    title="View Details"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleEditTask(task)}
+                    className="h-8 w-8 p-0"
+                    title="Edit Task"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleDeleteTask(task.id)}
+                    className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    title="Delete Task"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       ) : (
@@ -316,6 +418,24 @@ export default function AdminTasksPage() {
           )}
         </Card>
       )}
+
+      {/* Modals */}
+      <TaskDetailsModal
+        isOpen={showDetailsModal}
+        onClose={closeModals}
+        task={selectedTask}
+        onEdit={handleEditTask}
+        onDelete={handleDeleteTask}
+        isAdmin={true}
+      />
+
+      <EditTaskModal
+        isOpen={showEditModal}
+        onClose={closeModals}
+        task={selectedTask}
+        onSave={handleUpdateTask}
+        users={users}
+      />
     </div>
   );
 }

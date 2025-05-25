@@ -13,6 +13,7 @@ interface TaskCardProps {
   task: Task & {
     assignedTo?: User;
     assignedBy?: User;
+    dueDate: string
   };
   currentUserRole?: 'ADMIN' | 'TEAM_MEMBER';
   showAssignee?: boolean;
@@ -26,6 +27,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const dueDate = new Date(task.dueDate);
   const createdAt = new Date(task.createdAt);
   const updatedAt = new Date(task.updatedAt);
+
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
